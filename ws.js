@@ -282,7 +282,7 @@ _connect(connection)
                          return;
                      }
                      if (undefined !== data.M)
-                    {      console.log(data.M)
+                    {      
                          _.forEach(data.M, (entry) => {
                              self.emit('data', entry);
                          });
@@ -442,7 +442,7 @@ callMethod(method, args, cb)
 }
 
 connect()
-{   console.log(this._connectionState)
+{   
     if (STATE_NEW != this._connectionState)
     {
         return false;
@@ -453,9 +453,9 @@ connect()
     self._negotiate().then((result) => {
         // 'connect' step
         self._connect(self._connection).then((result) => {
-            console.log(result)
+
             self._start(self._connection).then((result) => {
-                console.log(result)
+
                 self._connectionState = STATE_CONNECTED;
                 self.emit('connected', {connectionId:self._connection.ConnectionId});
                 

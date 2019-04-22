@@ -110,37 +110,31 @@ subscribeToMarkets(pairs, connect)
         subscribe:[],
         resync:[]
     };
-
-    let updated = false;
     let newPairs = {};
     // check new subscriptions
-    _.forEach(pairs, (p) => {
-        if (undefined !== newPairs[p])
-        {
-            return;
-        }
+    // _.forEach(pairs, (p) => {
+    //     if (undefined !== newPairs[p])
+    //     {
+    //         return;
+    //     }
 
-        // pair has been added
-        if (undefined === this._subscriptions.markets.pairs[p])
-        {
-            newPairs[p] = this._initializeMarketsPair(timestamp);
-            changes.subscribe.push({entity:'orderBook',pair:p});
-            // request full order book for new pair
-            changes.resync.push({entity:'orderBook',pair:p})
-            updated = true;
-        }
-        else
-        {
-            newPairs[p] = this._subscriptions.markets.pairs[p];
-        }
-    });
+    //     // pair has been added
+    //     if (undefined === this._subscriptions.markets.pairs[p])
+    //     {
+    //         newPairs[p] = this._initializeMarketsPair(timestamp);
+    //         // changes.subscribe.push({entity:'orderBook',pair:p});
+    //     }
+    //     else
+    //     {
+    //         newPairs[p] = this._subscriptions.markets.pairs[p];
+    //     }
+    // });
+    newPairs[pairs] = this._subscriptions.markets.pairs[pairs];
     this._subscriptions.markets.pairs = newPairs;
 
-    if (updated)
-    {
-        this._subscriptions.markets.timestamp = timestamp;
-        this._processChanges(changes, connect);
-    }
+    this._subscriptions.markets.timestamp = timestamp;
+    this._processChanges(changes, connect);
+    
 }
 
 _processChanges(changes, connect)
@@ -160,16 +154,18 @@ _processChanges(changes, connect)
     if (undefined !== changes.subscribe)
     {   
         _.forEach(changes.subscribe, (entry) => {
-            console.log(entry.entity,entry.pair)
+            console.log(entry.entity)
             switch (entry.entity)
             {
                 case 'market':
                     this._connection.callMethod('SubscribeToExchangeDeltas', [entry.pair]);
                     break;
-                // Since 20/11/2017 tickers update are not sent automatically and require method SubscribeToSummaryDeltas
-                // case 'ticker':
-                //     this._connection.callMethod('SubscribeToSummaryDeltas');
-                //     break;
+                case 'summary':
+                    this._connection.callMethod('SubscribeToSummaryDeltas');
+                    break;
+                case 'summarylite':
+                    this._connection.callMethod('SubscribeToSummaryLiteDeltas');
+                    break;
                 // case 'orders':
                 //     this._subscribeToOrders();
                 //     break;
@@ -197,13 +193,11 @@ _createConnection(delay)
 
     connection.on('connected', function(data){
         // clear timers for data timeout
-        console.log("here1");
         self._connectionId = data.connectionId;
         self._processSubscriptions();
     });
 
     connection.on('data', function(data){
-        console.log("here222222")
         self._processData.call(self, data);
     });
 
@@ -243,31 +237,25 @@ _processSubscriptions()
         subscribe:[],
         resync:[]
     };
-
-    if (this._subscriptions.tickers.global)
-    {
-        changes.subscribe.push({entity:'ticker',global:true});
-    }
-    else
-    {
-        _.forEach(Object.keys(this._subscriptions.tickers.pairs), (p) => {
-            changes.subscribe.push({entity:'ticker',pair:p});
-        });
-    }
+    console.log(this._subscriptions.markets.pairs)
     _.forEach(Object.keys(this._subscriptions.markets.pairs), (p) => {
         changes.subscribe.push({entity:'market',pair:p});
-        // request full order book upon reconnection
-        changes.resync.push({entity:'orderBook',pair:p});
     });
-    if (this._subscriptions.orders.subscribed)
-    {
-        changes.subscribe.push({entity:'orders'});
-    }
+    _.forEach(Object.keys(this._subscriptions.markets.pairs), (p) => {
+        changes.subscribe.push({entity:'summary'});
+    });
+    _.forEach(Object.keys(this._subscriptions.markets.pairs), (p) => {
+        changes.subscribe.push({entity:'summarylite'});
+    });
+    // if (this._subscriptions.orders.subscribed)
+    // {
+    //     changes.subscribe.push({entity:'orders'});
+    // }
     this._processChanges(changes);
 }
 
 _processData(data)
-{
+{   
     try
     {
         let methodName = data.M.toLowerCase();
@@ -276,9 +264,19 @@ _processData(data)
         {
             case 'ue':
                 _.forEach(data.A, (entry) => {
-                    this._processUpdateExchangeState(entry);
+                    this._processUpdateExchangeMarketDeltas(entry);
                 })
                 break;
+            case 'ul':
+            _.forEach(data.A, (entry) => {
+                this._processUpdateExchangeLiteDeltas(entry);
+            })
+            break;
+            case 'us':
+            _.forEach(data.A, (entry) => {
+                this._processUpdateExchangeSummaryDeltas(entry);
+            })
+            break;
         };
     }
     catch (e)
@@ -287,10 +285,22 @@ _processData(data)
     }
 }
 
-_processUpdateExchangeState(d)
+_processUpdateExchangeSummaryDeltas(d)
 {   
     this._decodeData(d, function(data){
-        console.log(data)
+        this.emit('summaryDelta', data);
+        // an error occurred
+        if (undefined === data)
+        {
+            return;
+        }
+    });
+}
+
+
+_processUpdateExchangeMarketDeltas(d)
+{   
+    this._decodeData(d, function(data){
         this.emit('orderBookUpdate', data);
         // an error occurred
         if (undefined === data)
@@ -299,6 +309,20 @@ _processUpdateExchangeState(d)
         }
     });
 }
+
+
+_processUpdateExchangeLiteDeltas(d)
+{   
+    this._decodeData(d, function(data){
+        this.emit('orderBookUpdateLite', data);
+        // an error occurred
+        if (undefined === data)
+        {
+            return;
+        }
+    });
+}
+
 
 _decodeData(d, cb)
 {
@@ -350,7 +374,5 @@ isConnected()
     return this._connection.isConnected()
 }
 
-
 }
-
 module.exports = SignalRClient;

@@ -243,45 +243,46 @@ _connect(connection)
                      resolve();
                  });
                  ws.on('message', function (message) {
-                     if ('{}' === message)
-                     {
-                         return;
-                     }
-                     let data;
-                     try
-                     {
-                         data = JSON.parse(message);
-                        //  console.log(data)
-                     }
-                     catch (e)
-                     {
+                    if (STATE_CONNECTED != self._connectionState)
+                    {
                         return;
-                     }
-                     if (data.I != undefined){
-                         let messageId = parseInt(data.I)
-                     }
-                     // process responses
-                     if (undefined !== data.I)
-                     {
-                         let messageId = parseInt(data.I);
-                         // ignore progress
-                         if (undefined !== data.D)
-                         {
-                             return;
-                         }
-                         // process result
-                         if (undefined !== data.R)
-                         {  
-                             // do we have a callback for this messageId
-                             if (undefined !== self._callbacks[messageId])
-                             {
-                                 self._callbacks[messageId](data.R, null);
-                                 delete self._callbacks[messageId];
-                             }
-                         }
-                         return;
-                     }
-                     if (undefined !== data.M)
+                    }
+                    if ('{}' === message)
+                    {
+                        return;
+                    }
+                    let data;
+                    try
+                    {
+                        data = JSON.parse(message);
+                    }
+                    catch (e)
+                    {
+                        return;
+                    }
+                    
+                    // process responses
+                    if (undefined !== data.I)
+                    {
+                        let messageId = parseInt(data.I);
+                        // ignore progress
+                        if (undefined !== data.D)
+                        {
+                            return;
+                        }
+                        // process result
+                        if (undefined !== data.R)
+                        {   
+                            // do we have a callback for this messageId
+                            if (undefined !== self._callbacks[messageId])
+                            {   
+                                self._callbacks[messageId](data.R, null);
+                                delete self._callbacks[messageId];
+                            }
+                        }
+                        return;
+                    }
+                    if (undefined !== data.M)
                     {      
                          _.forEach(data.M, (entry) => {
                              self.emit('data', entry);

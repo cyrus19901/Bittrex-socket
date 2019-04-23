@@ -38,7 +38,8 @@ constructor(options)
             subscribed:false
         },
         query:{
-            pairs:{}
+            pairs:null,
+            summary:false
         }
     };
 
@@ -128,9 +129,26 @@ QueryExchangeDeltas(pairs, connect)
         subscribe:[],
         resync:[]
     };
-    let newPairs = {};
     // newPairs[pairs] = this._subscriptions.query.pairs[pairs];
     this._subscriptions.query.pairs = pairs;
+    this._processChanges(changes,connect);
+    
+}
+
+
+QuerySummaryStateDeltas(pairs, connect)
+{
+    if (undefined === connect)
+    {
+        connect = true;
+    }
+    let changes = {
+        subscribe:[],
+        resync:[]
+    };
+    // newPairs[pairs] = this._subscriptions.query.pairs[pairs];
+    this._subscriptions.query.pairs = pairs;
+    this._subscriptions.query.summary = true;
     this._processChanges(changes,connect);
     
 }
@@ -153,6 +171,9 @@ _processChanges(changes, connect)
     if (this._subscriptions.query.pairs != null){
         this._queryExchangeState(this._subscriptions.query.pairs[0]);
     }
+    if (this._subscriptions.query.pairs != null && this._subscriptions.query.summary === true){
+        this._querySummaryState(this._subscriptions.query.pairs[0]);
+    }
 
     if (undefined !== changes.subscribe)
     {   
@@ -168,6 +189,9 @@ _processChanges(changes, connect)
                     break;
                 case 'summarylite':
                     this._connection.callMethod('SubscribeToSummaryLiteDeltas');
+                    break;
+                case 'orders':
+                    this._subscribeToOrders();
                     break;
             }
         });
@@ -229,6 +253,63 @@ _createConnection(delay)
 }
 
 /**
+ * Performs SignalR request
+ *
+ * @param {function} cb callback to call upon completion (optional)
+ */
+_subscribeToOrders(cb)
+{   
+    let self = this;
+    this._connection.callMethod('GetAuthContext', [this._auth.key], function(challenge, err){
+        // we got an error
+        if (null !== err)
+        {
+            console.log("Error ecountered")
+            return;
+        }
+        if (null === self._connection || !self._connection.isConnected())
+        {
+            if (undefined !== cb)
+            {
+                try
+                {
+                    cb(false);
+                }
+                catch (e)
+                {
+                    // just ignore
+                }
+            }
+            return;
+        }
+
+        // create response
+        const hmac = crypto.createHmac('sha512', self._auth.secret);
+        hmac.update(challenge);
+        const response = hmac.digest('hex');
+
+        // call Authenticate
+        self._connection.callMethod('Authenticate', [self._auth.key, response], function(success, err){
+            // we got an error
+            if (null !== err)
+            {
+                console.log("Error was encounterd while authentication")
+            }
+            if (undefined !== cb)
+            {
+                try
+                {
+                    cb(true);
+                }
+                catch (e)
+                {
+                    // just ignore
+                }
+            }
+        });
+    });
+}
+/**
  * This method will be called upon reconnection and will call _processChanges
  */
 _processSubscriptions()
@@ -237,10 +318,13 @@ _processSubscriptions()
         subscribe:[],
         resync:[]
     };
-    if (this._subscriptions.query.pairs){
+
+    if (this._subscriptions.query.pairs != null){
         changes.subscribe.push({entity:'queryExchange'})
     }
-    console.log(this._subscriptions.markets.pairs)
+    if (this._subscriptions.query.pairs !=null && this._subscriptions.query.summary === true){
+        changes.subscribe.push({entity:'querySummary'})
+    }
     _.forEach(Object.keys(this._subscriptions.markets.pairs), (p) => {
         changes.subscribe.push({entity:'market',pair:p});
     });
@@ -250,6 +334,10 @@ _processSubscriptions()
     _.forEach(Object.keys(this._subscriptions.markets.pairs), (p) => {
         changes.subscribe.push({entity:'summarylite'});
     });
+    if (this._subscriptions.orders.subscribed)
+    {
+        changes.subscribe.push({entity:'orders'});
+    }
     this._processChanges(changes);
 }
 
@@ -262,10 +350,10 @@ _processData(data)
         switch (methodName)
         {
             case 'ue':
-                _.forEach(data.A, (entry) => {
-                    this._processUpdateExchangeMarketDeltas(entry);
-                })
-                break;
+            _.forEach(data.A, (entry) => {
+                this._processUpdateExchangeMarketDeltas(entry);
+            })
+            break;
             case 'ul':
             _.forEach(data.A, (entry) => {
                 this._processUpdateExchangeLiteDeltas(entry);
@@ -276,6 +364,16 @@ _processData(data)
                 this._processUpdateExchangeSummaryDeltas(entry);
             })
             break;
+            case 'ub':
+            _.forEach(data.A, (entry) => {
+                this._processBalanceDelta(entry);
+            })
+            break;
+            case 'uo':
+            _.forEach(data.A, (entry) => {
+                this._processOrdersDelta(entry);
+            })
+            break;
         };
     }
     catch (e)
@@ -283,6 +381,33 @@ _processData(data)
         console.log(e);
     }
 }
+
+
+_processOrdersDelta(d)
+{
+    this._decodeData(d, function(data){
+        // an error occurred
+        if (undefined === data)
+        {
+            return;
+        }
+        // no entry
+        if (undefined === data.o)
+        {
+            return;
+        }
+
+        this.emit('orderDelta', data);
+    });
+}
+
+_processBalanceDelta(d)
+{
+    this._decodeData(d, function(data){
+        this.emit('balanceDelta', data);
+    });
+}
+
 
 _processUpdateExchangeSummaryDeltas(d)
 {   
@@ -358,12 +483,67 @@ _queryExchangeState(pair)
         if (err){
             console.log("An error occoured ",err);
         }
-        self._decodeData.call(self, d, function(data){
-            console.log(data)
-            return data;
-        });
+        else{
+            self._decodeData.call(self, d, function(data){
+                self.emit('orderBook',data);
+            });
+        }
+
     });
+
 }
+
+_querySummaryState(pair)
+{
+    // reset nounce
+    
+    let self = this;
+    console.log("here----------------")
+    // this._connection.callMethod('QuerySummaryState');
+    let val = this._connection.callMethod('QuerySummaryState', function(d,err){
+        console.log(d)
+        console.log(err)
+    });
+    console.log(JSON.stringify(val.data))
+    //     if (err){
+    //         console.log("An error occoured ",err);
+    //     }
+    //     else{
+    //     //     self._decodeData.call(self, d, function(data){
+    //     //         console.log(data)
+    //     //         self.emit('orderBookSummary',data);
+    //     //     });
+    //         console.log("fuck")
+    //     }
+
+    // });
+
+}
+subscribeToOrders(connect)
+{
+    // no support
+    if (null === this._auth.key)
+    {
+        return false;
+    }
+
+    if (undefined === connect)
+    {
+        connect = true;
+    }
+
+    // cancel watchdog since a new one will be automatically started
+    let timestamp = Date.now() / 1000.0;
+    let changes = {
+        subscribe:[{entity:'orders'}]
+    };
+
+    this._subscriptions.orders.timestamp = timestamp;
+    this._subscriptions.orders.subscribed = true;
+    this._processChanges(changes, connect);
+}
+
+
 /*
  * Connect SignalR connection
  *

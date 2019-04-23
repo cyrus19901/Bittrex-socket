@@ -9,19 +9,13 @@ const zlib = require('zlib');
 const crypto = require('crypto');
 const SignalRConnection = require('./ws');
 
-// how long should we wait before trying to reconnect upon disconnection
-// const RETRY_DELAY = 10 * 1000;
 
 class SignalRClient extends EventEmitter
 {
 
 constructor(options)
 {
-    // console.log(options)
     super();
-
-    this._markNewOrderBookEntriesAsUpdates = true;
-
     this._auth = {
         key:null,
         secret:null
@@ -30,11 +24,9 @@ constructor(options)
     this._subscriptions = {
 
         markets:{
-            timestamp:null,
             pairs:{}
         },
         orders:{
-            timestamp:null,
             subscribed:false
         },
         query:{
@@ -43,61 +35,26 @@ constructor(options)
         }
     };
 
-    // use to keep track of last trades id
     this._connectionOptions = {};
     if (undefined !== options)
     {
         // auth
-        if (undefined !== options.auth)
+        if ( options.auth !== undefined)
         {
-            if (undefined !== options.auth.key && '' != options.auth.key &&
-                undefined !== options.auth.secret && '' !== options.auth.secret)
+            if (options.auth.key != undefined  && options.auth.key != '' &&
+            options.auth.secret !== undefined && options.auth.secret !== '' )
             {
                 this._auth.key = options.auth.key;
                 this._auth.secret = options.auth.secret;
             }
         }
-        if (undefined != options.userAgent && '' != options.userAgent)
-        {
-            this._connectionOptions.userAgent = options.userAgent;
-        }
-
-        if (false === options.markNewOrderBookEntriesAsUpdates)
-        {
-            this._markNewOrderBookEntriesAsUpdates = false;
-        }
     }
 
-    // keep track of how many connections we started
-    this._connectionCounter = 0;
     this._connection = null;
-    // SignalR connection id
     this._connectionId = null;
 }
 
-/**
- * Initialize markets subscriptions for a given pair
- *
- * @param {float} timestamp timestamp of the first subscription
- */
-_initializeMarketsPair(timestamp)
-{
-    let obj = {
-        // last time subscription for current pair has changed
-        timestamp:timestamp,
-        lastCseq:0,
-        lastUpdateCseq:0
-    }
-    return obj;
-}
 
-/**
- * Subscribe to order books & trades for a list of pairs
- *
- * @param {array} pairs array of pairs
- * @param {boolean} reset if true, previous subscriptions will be ignored (default = false)
- * @param {boolean} connect whether or not connection with exchange should be established if necessary (optional, default = true)
- */
 subscribeToMarkets(pairs, connect)
 {
     if (undefined === connect)
@@ -106,17 +63,15 @@ subscribeToMarkets(pairs, connect)
     }
     let timestamp = Date.now() / 1000.0;
     let changes = {
-        subscribe:[],
-        resync:[]
+        subscribe:[]
     };
-    let newPairs = {};
 
+    let newPairs = {};
     newPairs[pairs] = this._subscriptions.markets.pairs[pairs];
     this._subscriptions.markets.pairs = newPairs;
-
     this._subscriptions.markets.timestamp = timestamp;
     this._processChanges(changes, connect);
-    
+
 }
 
 QueryExchangeDeltas(pairs, connect)
@@ -126,15 +81,12 @@ QueryExchangeDeltas(pairs, connect)
         connect = true;
     }
     let changes = {
-        subscribe:[],
-        resync:[]
+        query:null
     };
-    // newPairs[pairs] = this._subscriptions.query.pairs[pairs];
     this._subscriptions.query.pairs = pairs;
     this._processChanges(changes,connect);
     
 }
-
 
 QuerySummaryStateDeltas(pairs, connect)
 {
@@ -143,10 +95,8 @@ QuerySummaryStateDeltas(pairs, connect)
         connect = true;
     }
     let changes = {
-        subscribe:[],
-        resync:[]
+        query:null
     };
-    // newPairs[pairs] = this._subscriptions.query.pairs[pairs];
     this._subscriptions.query.pairs = pairs;
     this._subscriptions.query.summary = true;
     this._processChanges(changes,connect);
@@ -167,7 +117,6 @@ _processChanges(changes, connect)
     {
         return;
     }
-        // check if we need to resync order books
     if (this._subscriptions.query.pairs != null){
         this._queryExchangeState(this._subscriptions.query.pairs[0]);
     }
@@ -178,7 +127,6 @@ _processChanges(changes, connect)
     if (undefined !== changes.subscribe)
     {   
         _.forEach(changes.subscribe, (entry) => {
-            console.log(entry.entity)
             switch (entry.entity)
             {
                 case 'market':
@@ -198,27 +146,16 @@ _processChanges(changes, connect)
     }
 }
 
-
-/**
- * Creates a new connection
- *
- * @param {integer} delay delay in ms before connecting (optional, default = no delay)
- */
 _createConnection(delay)
 {  
-    this._connectionCounter += 1;
     this._connectionId = null;
     let connection = new SignalRConnection(this._connectionOptions);
-
-    // recompute utc offset on each reconnect
-    // this._computeUtcOffset();
-
     let self = this;
 
     connection.on('connected', function(data){
-        // clear timers for data timeout
+        self.emit('connected', {connectionId:data.connectionId});
         self._connectionId = data.connectionId;
-        self._processSubscriptions();
+        self._processSubscriptions.call(self);
     });
 
     connection.on('data', function(data){
@@ -229,7 +166,6 @@ _createConnection(delay)
 
     try
     {
-        // connect immediately
         if (undefined === delay)
         {
             connection.connect();
@@ -237,7 +173,6 @@ _createConnection(delay)
         else
         {
             setTimeout(function(){
-                // disconnection probably requested by client
                 if (null === self._connection)
                 {
                     return;
@@ -252,11 +187,7 @@ _createConnection(delay)
     }
 }
 
-/**
- * Performs SignalR request
- *
- * @param {function} cb callback to call upon completion (optional)
- */
+
 _subscribeToOrders(cb)
 {   
     let self = this;
@@ -277,12 +208,11 @@ _subscribeToOrders(cb)
                 }
                 catch (e)
                 {
-                    // just ignore
+                    console.log("the error thrown is :",e)
                 }
             }
             return;
         }
-
         // create response
         const hmac = crypto.createHmac('sha512', self._auth.secret);
         hmac.update(challenge);
@@ -303,20 +233,17 @@ _subscribeToOrders(cb)
                 }
                 catch (e)
                 {
-                    // just ignore
+                    console.log("the error thrown is :",e)
                 }
             }
         });
     });
 }
-/**
- * This method will be called upon reconnection and will call _processChanges
- */
+
 _processSubscriptions()
 {   
     let changes = {
-        subscribe:[],
-        resync:[]
+        subscribe:[]
     };
 
     if (this._subscriptions.query.pairs != null){
@@ -386,12 +313,11 @@ _processData(data)
 _processOrdersDelta(d)
 {
     this._decodeData(d, function(data){
-        // an error occurred
+
         if (undefined === data)
         {
             return;
         }
-        // no entry
         if (undefined === data.o)
         {
             return;
@@ -413,7 +339,6 @@ _processUpdateExchangeSummaryDeltas(d)
 {   
     this._decodeData(d, function(data){
         this.emit('summaryDelta', data);
-        // an error occurred
         if (undefined === data)
         {
             return;
@@ -452,7 +377,6 @@ _decodeData(d, cb)
 {
     let self = this;
     let gzipData = Buffer.from(d, 'base64');
-    // we need to use inflateRaw to avoid zlib error 'incorrect header check' (Z_DATA_ERROR)
     zlib.inflateRaw(gzipData, function(err, str){
         if (null !== err)
         {
@@ -476,7 +400,6 @@ _decodeData(d, cb)
 
 _queryExchangeState(pair)
 {
-    // reset nounce
     
     let self = this;
     this._connection.callMethod('QueryExchangeState', [pair], function(d, err){
@@ -495,14 +418,10 @@ _queryExchangeState(pair)
 
 _querySummaryState(pair)
 {
-    // reset nounce
     
     let self = this;
-    console.log("here----------------")
     // this._connection.callMethod('QuerySummaryState');
     let val = this._connection.callMethod('QuerySummaryState', function(d,err){
-        console.log(d)
-        console.log(err)
     });
     console.log(JSON.stringify(val.data))
     //     if (err){
@@ -519,36 +438,25 @@ _querySummaryState(pair)
     // });
 
 }
+
 subscribeToOrders(connect)
 {
-    // no support
     if (null === this._auth.key)
     {
         return false;
     }
-
     if (undefined === connect)
     {
         connect = true;
     }
-
-    // cancel watchdog since a new one will be automatically started
-    let timestamp = Date.now() / 1000.0;
     let changes = {
         subscribe:[{entity:'orders'}]
     };
-
-    this._subscriptions.orders.timestamp = timestamp;
     this._subscriptions.orders.subscribed = true;
     this._processChanges(changes, connect);
 }
 
 
-/*
- * Connect SignalR connection
- *
- * Should not be necessary since connection will happen automatically
- */
 connect()
 {
     // create if needed

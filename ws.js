@@ -455,7 +455,6 @@ connect()
         self._connect(self._connection).then((result) => {
 
             self._start(self._connection).then((result) => {
-
                 self._connectionState = STATE_CONNECTED;
                 self.emit('connected', {connectionId:self._connection.ConnectionId});
                 

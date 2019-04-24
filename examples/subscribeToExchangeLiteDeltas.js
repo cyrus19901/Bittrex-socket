@@ -11,6 +11,6 @@ client.on('orderBookUpdateLite', function(data){
     return;
 });
 
-console.log("=== Subscribing to 'USDT-BTC' pair");
+console.log("=== Subscribing to 'ETH-BTC' pair");
 client.subscribeToMarkets(['BTC-ETH']);
 

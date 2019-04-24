@@ -3,8 +3,8 @@ const SignalRClient = require('../ws-client.js');
 
 let client = new SignalRClient({
     auth:{
-        key:"************************************",
-        secret: "**********************************"
+        key:"*****************************",
+        secret: "*****************************"
     }
 });
 client.on('orderDelta', function(data){

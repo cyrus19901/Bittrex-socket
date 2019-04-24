@@ -30,7 +30,7 @@ constructor(options)
             subscribed:false
         },
         query:{
-            pairs:null,
+            pairs:{},
             summary:false
         }
     };
@@ -38,7 +38,6 @@ constructor(options)
     this._connectionOptions = {};
     if (undefined !== options)
     {
-        // auth
         if ( options.auth !== undefined)
         {
             if (options.auth.key != undefined  && options.auth.key != '' &&
@@ -81,7 +80,8 @@ QueryExchangeDeltas(pairs, connect)
         connect = true;
     }
     let changes = {
-        query:null
+        subscribe:[],
+        query:{}
     };
     this._subscriptions.query.pairs = pairs;
     this._processChanges(changes,connect);
@@ -246,11 +246,11 @@ _processSubscriptions()
         subscribe:[]
     };
 
-    if (this._subscriptions.query.pairs != null){
-        changes.subscribe.push({entity:'queryExchange'})
+    if (this._subscriptions.query.pairs != null && this._subscriptions.query.summary === false){
+        changes.subscribe.push({entity:'queryExchange',pair:this._subscriptions.query.pairs})
     }
-    if (this._subscriptions.query.pairs !=null && this._subscriptions.query.summary === true){
-        changes.subscribe.push({entity:'querySummary'})
+    if (this._subscriptions.query.pairs != null && this._subscriptions.query.summary === true){
+        changes.subscribe.push({entity:'querySummary',pair:this._subscriptions.query.pairs})
     }
     _.forEach(Object.keys(this._subscriptions.markets.pairs), (p) => {
         changes.subscribe.push({entity:'market',pair:p});
@@ -273,7 +273,6 @@ _processData(data)
     try
     {
         let methodName = data.M.toLowerCase();
-        console.log(methodName)
         switch (methodName)
         {
             case 'ue':
@@ -400,7 +399,6 @@ _decodeData(d, cb)
 
 _queryExchangeState(pair)
 {
-    
     let self = this;
     this._connection.callMethod('QueryExchangeState', [pair], function(d, err){
         if (err){
@@ -418,24 +416,19 @@ _queryExchangeState(pair)
 
 _querySummaryState(pair)
 {
-    
-    let self = this;
-    // this._connection.callMethod('QuerySummaryState');
-    let val = this._connection.callMethod('QuerySummaryState', function(d,err){
-    });
-    console.log(JSON.stringify(val.data))
-    //     if (err){
-    //         console.log("An error occoured ",err);
-    //     }
-    //     else{
-    //     //     self._decodeData.call(self, d, function(data){
-    //     //         console.log(data)
-    //     //         self.emit('orderBookSummary',data);
-    //     //     });
-    //         console.log("fuck")
-    //     }
 
-    // });
+    let self = this;
+    this._connection.callMethod('QuerySummaryState',function(d,err){
+        if (err){
+            console.log("An error occoured ",err);
+        }
+        else{
+            self._decodeData.call(self, d, function(data){
+                self.emit('orderBookSummary',data);
+            });
+        }
+
+    });
 
 }
 

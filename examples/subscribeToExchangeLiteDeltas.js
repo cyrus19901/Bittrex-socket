@@ -7,7 +7,7 @@ let client = new SignalRClient({
 });
 
 client.on('orderBookUpdateLite', function(data){
-    console.log(util.format(data));
+    console.log(JSON.stringify(data));
     return;
 });
 

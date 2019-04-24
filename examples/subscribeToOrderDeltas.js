@@ -8,7 +8,7 @@ let client = new SignalRClient({
     }
 });
 client.on('orderDelta', function(data){
-    console.log(data)
+    console.log(JSON.stringify(data))
 });
 
 //-- start subscription

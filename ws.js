@@ -12,15 +12,15 @@ const EventEmitter = require('events');
 const BASE_PATH = 'bittrex.com/signalr';
 
 // connection configuration
-const DEFAULT_SOCKETTIMEOUT = 60 * 1000;
+const DEFAULT_SOCKETTIMEOUT = 60 * 10;
 
 
 // SignalR connection states
 const STATE_NEW = 0;
 const STATE_CONNECTING = 1;
 const STATE_CONNECTED = 2;
-// const STATE_DISCONNECTING = 3;
-// const STATE_DISCONNECTED = 4;
+const STATE_DISCONNECTING = 3;
+const STATE_DISCONNECTED = 4;
 
 // whether or not we want to perform 'start' step (does not seem to be mandatory with Bittrex)
 // const IGNORE_START_STEP = false;
@@ -213,7 +213,7 @@ _connect(connection)
          }
          let wsOptions = {
              perMessageDeflate: false,
-             handshakeTimeout:connection.TransportConnectTimeout * 2000,
+             handshakeTimeout:connection.TransportConnectTimeout * 1,
              headers: headers
          }
         let operation = retry.operation();
@@ -289,15 +289,27 @@ _connect(connection)
                          });
                      }
                  });
+
+                 ws.on('close', function(code, reason){
+                    // connection has already been disconnected
+                    if (STATE_CONNECTING != self._connectionState && STATE_CONNECTED != self._connectionState)
+                    {
+                        return;
+                    }
+                    self._ws = null;
+                    let err = {origin:'client', error:{code:code,message:reason}}
+
+                    self.emit('connectionError', {step:'connect',error:err});
+                    return;
+
+                });
+                
                  ws.on('error', function(e) {
-                     if (ignoreErrorEvent)
-                     {
-                         return;
-                     }
+
                      // connection has already been disconnected
                      if (STATE_CONNECTING != self._connectionState)
                      {
-                         resolve({ignore:true});
+                         resolve();
                          return;
                      }
                      let err = {origin:'client', error:{code:e.code,message:e.message}}
@@ -313,7 +325,7 @@ _connect(connection)
                              return;
                          }
                      }
-                     reject({error:err});
+                     reject();
                  });
                  ws.on('ping', function(data){
                      this.pong('', true, true);
@@ -332,7 +344,38 @@ _connect(connection)
         });
     }
 }
-
+_finalize(terminate, newState)
+{
+    // abort connection
+    if (null !== this._connection)
+    {
+        let connection = this._connection;
+        this._connection = null;
+    }
+    // close ws
+    if (null !== this._ws)
+    {
+        let ws = this._ws;
+        this._ws = null;
+        this._ignoreCloseEvent = true;
+        try
+        {
+            if (terminate)
+            {
+                ws.terminate();
+            }
+            else
+            {
+                ws.close();
+            }
+        }
+        catch (e)
+        {
+            // do nothing
+        }
+    }
+    this._connectionState = newState;
+}
 _start(connection)
 {
     try

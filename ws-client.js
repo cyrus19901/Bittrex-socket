@@ -157,7 +157,10 @@ _createConnection(delay)
         self._connectionId = data.connectionId;
         self._processSubscriptions.call(self);
     });
-
+    connection.on('connectionError', function(err){
+        self.emit('connectionError', {step:err.step,attempts:err.attempts,error:err.error});
+        return;
+    });
     connection.on('data', function(data){
         self._processData.call(self, data);
     });

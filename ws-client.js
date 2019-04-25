@@ -9,96 +9,51 @@ const zlib = require('zlib');
 const crypto = require('crypto');
 const SignalRConnection = require('./ws');
 
-// how long should we wait before trying to reconnect upon disconnection
-// const RETRY_DELAY = 10 * 1000;
 
 class SignalRClient extends EventEmitter
 {
 
 constructor(options)
 {
-    // console.log(options)
     super();
-
-    this._markNewOrderBookEntriesAsUpdates = true;
-
     this._auth = {
         key:null,
         secret:null
     }
     // subscriptions
     this._subscriptions = {
-        tickers:{
-            // wether or not we subscribed to tickers globally
-            global:false,
-            timestamp:null,
-            pairs:{}
-        },
+
         markets:{
-            timestamp:null,
             pairs:{}
         },
         orders:{
-            timestamp:null,
             subscribed:false
+        },
+        query:{
+            pairs:{},
+            summary:false
         }
     };
 
-    // use to keep track of last trades id
     this._connectionOptions = {};
     if (undefined !== options)
     {
-        // auth
-        if (undefined !== options.auth)
+        if ( options.auth !== undefined)
         {
-            if (undefined !== options.auth.key && '' != options.auth.key &&
-                undefined !== options.auth.secret && '' !== options.auth.secret)
+            if (options.auth.key != undefined  && options.auth.key != '' &&
+            options.auth.secret !== undefined && options.auth.secret !== '' )
             {
                 this._auth.key = options.auth.key;
                 this._auth.secret = options.auth.secret;
             }
         }
-        if (undefined != options.userAgent && '' != options.userAgent)
-        {
-            this._connectionOptions.userAgent = options.userAgent;
-        }
-
-        if (false === options.markNewOrderBookEntriesAsUpdates)
-        {
-            this._markNewOrderBookEntriesAsUpdates = false;
-        }
     }
 
-    // keep track of how many connections we started
-    this._connectionCounter = 0;
     this._connection = null;
-    // SignalR connection id
     this._connectionId = null;
 }
 
-/**
- * Initialize markets subscriptions for a given pair
- *
- * @param {float} timestamp timestamp of the first subscription
- */
-_initializeMarketsPair(timestamp)
-{
-    let obj = {
-        // last time subscription for current pair has changed
-        timestamp:timestamp,
-        lastCseq:0,
-        lastUpdateCseq:0
-    }
-    return obj;
-}
 
-/**
- * Subscribe to order books & trades for a list of pairs
- *
- * @param {array} pairs array of pairs
- * @param {boolean} reset if true, previous subscriptions will be ignored (default = false)
- * @param {boolean} connect whether or not connection with exchange should be established if necessary (optional, default = true)
- */
 subscribeToMarkets(pairs, connect)
 {
     if (undefined === connect)
@@ -107,48 +62,53 @@ subscribeToMarkets(pairs, connect)
     }
     let timestamp = Date.now() / 1000.0;
     let changes = {
-        subscribe:[],
-        resync:[]
+        subscribe:[]
     };
 
-    let updated = false;
     let newPairs = {};
-    // check new subscriptions
-    _.forEach(pairs, (p) => {
-        if (undefined !== newPairs[p])
-        {
-            return;
-        }
-
-        // pair has been added
-        if (undefined === this._subscriptions.markets.pairs[p])
-        {
-            newPairs[p] = this._initializeMarketsPair(timestamp);
-            changes.subscribe.push({entity:'orderBook',pair:p});
-            // request full order book for new pair
-            changes.resync.push({entity:'orderBook',pair:p})
-            updated = true;
-        }
-        else
-        {
-            newPairs[p] = this._subscriptions.markets.pairs[p];
-        }
-    });
+    newPairs[pairs] = this._subscriptions.markets.pairs[pairs];
     this._subscriptions.markets.pairs = newPairs;
+    this._subscriptions.markets.timestamp = timestamp;
+    this._processChanges(changes, connect);
 
-    if (updated)
+}
+
+QueryExchangeDeltas(pairs, connect)
+{
+    if (undefined === connect)
     {
-        this._subscriptions.markets.timestamp = timestamp;
-        this._processChanges(changes, connect);
+        connect = true;
     }
+    let changes = {
+        subscribe:[],
+        query:{}
+    };
+    this._subscriptions.query.pairs = pairs;
+    this._processChanges(changes,connect);
+    
+}
+
+QuerySummaryStateDeltas(pairs, connect)
+{
+    if (undefined === connect)
+    {
+        connect = true;
+    }
+    let changes = {
+        query:null
+    };
+    this._subscriptions.query.pairs = pairs;
+    this._subscriptions.query.summary = true;
+    this._processChanges(changes,connect);
+    
 }
 
 _processChanges(changes, connect)
-{
+{  
     if (null === this._connection)
     {
         if (connect)
-        {
+        {   
             this._createConnection();
         }
         return;
@@ -157,53 +117,48 @@ _processChanges(changes, connect)
     {
         return;
     }
+    if (this._subscriptions.query.pairs != null){
+        this._queryExchangeState(this._subscriptions.query.pairs[0]);
+    }
+    if (this._subscriptions.query.pairs != null && this._subscriptions.query.summary === true){
+        this._querySummaryState(this._subscriptions.query.pairs[0]);
+    }
+
     if (undefined !== changes.subscribe)
     {   
         _.forEach(changes.subscribe, (entry) => {
-            console.log(entry.entity,entry.pair)
             switch (entry.entity)
             {
                 case 'market':
                     this._connection.callMethod('SubscribeToExchangeDeltas', [entry.pair]);
                     break;
-                // Since 20/11/2017 tickers update are not sent automatically and require method SubscribeToSummaryDeltas
-                // case 'ticker':
-                //     this._connection.callMethod('SubscribeToSummaryDeltas');
-                //     break;
-                // case 'orders':
-                //     this._subscribeToOrders();
-                //     break;
+                case 'summary':
+                    this._connection.callMethod('SubscribeToSummaryDeltas');
+                    break;
+                case 'summarylite':
+                    this._connection.callMethod('SubscribeToSummaryLiteDeltas');
+                    break;
+                case 'orders':
+                    this._subscribeToOrders();
+                    break;
             }
         });
     }
 }
 
-
-/**
- * Creates a new connection
- *
- * @param {integer} delay delay in ms before connecting (optional, default = no delay)
- */
 _createConnection(delay)
-{
-    this._connectionCounter += 1;
+{  
     this._connectionId = null;
     let connection = new SignalRConnection(this._connectionOptions);
-
-    // recompute utc offset on each reconnect
-    // this._computeUtcOffset();
-
     let self = this;
 
     connection.on('connected', function(data){
-        // clear timers for data timeout
-        console.log("here1");
+        self.emit('connected', {connectionId:data.connectionId});
         self._connectionId = data.connectionId;
-        self._processSubscriptions();
+        self._processSubscriptions.call(self);
     });
 
     connection.on('data', function(data){
-        console.log("here222222")
         self._processData.call(self, data);
     });
 
@@ -211,7 +166,6 @@ _createConnection(delay)
 
     try
     {
-        // connect immediately
         if (undefined === delay)
         {
             connection.connect();
@@ -219,7 +173,6 @@ _createConnection(delay)
         else
         {
             setTimeout(function(){
-                // disconnection probably requested by client
                 if (null === self._connection)
                 {
                     return;
@@ -234,30 +187,79 @@ _createConnection(delay)
     }
 }
 
-/**
- * This method will be called upon reconnection and will call _processChanges
- */
+
+_subscribeToOrders(cb)
+{   
+    let self = this;
+    this._connection.callMethod('GetAuthContext', [this._auth.key], function(challenge, err){
+        // we got an error
+        if (null !== err)
+        {
+            console.log("Error ecountered")
+            return;
+        }
+        if (null === self._connection || !self._connection.isConnected())
+        {
+            if (undefined !== cb)
+            {
+                try
+                {
+                    cb(false);
+                }
+                catch (e)
+                {
+                    console.log("the error thrown is :",e)
+                }
+            }
+            return;
+        }
+        // create response
+        const hmac = crypto.createHmac('sha512', self._auth.secret);
+        hmac.update(challenge);
+        const response = hmac.digest('hex');
+
+        // call Authenticate
+        self._connection.callMethod('Authenticate', [self._auth.key, response], function(success, err){
+            // we got an error
+            if (null !== err)
+            {
+                console.log("Error was encounterd while authentication")
+            }
+            if (undefined !== cb)
+            {
+                try
+                {
+                    cb(true);
+                }
+                catch (e)
+                {
+                    console.log("the error thrown is :",e)
+                }
+            }
+        });
+    });
+}
+
 _processSubscriptions()
-{
+{   
     let changes = {
-        subscribe:[],
-        resync:[]
+        subscribe:[]
     };
 
-    if (this._subscriptions.tickers.global)
-    {
-        changes.subscribe.push({entity:'ticker',global:true});
+    if (this._subscriptions.query.pairs != null && this._subscriptions.query.summary === false){
+        changes.subscribe.push({entity:'queryExchange',pair:this._subscriptions.query.pairs})
     }
-    else
-    {
-        _.forEach(Object.keys(this._subscriptions.tickers.pairs), (p) => {
-            changes.subscribe.push({entity:'ticker',pair:p});
-        });
+    if (this._subscriptions.query.pairs != null && this._subscriptions.query.summary === true){
+        changes.subscribe.push({entity:'querySummary',pair:this._subscriptions.query.pairs})
     }
     _.forEach(Object.keys(this._subscriptions.markets.pairs), (p) => {
         changes.subscribe.push({entity:'market',pair:p});
-        // request full order book upon reconnection
-        changes.resync.push({entity:'orderBook',pair:p});
+    });
+    _.forEach(Object.keys(this._subscriptions.markets.pairs), (p) => {
+        changes.subscribe.push({entity:'summary'});
+    });
+    _.forEach(Object.keys(this._subscriptions.markets.pairs), (p) => {
+        changes.subscribe.push({entity:'summarylite'});
     });
     if (this._subscriptions.orders.subscribed)
     {
@@ -267,18 +269,37 @@ _processSubscriptions()
 }
 
 _processData(data)
-{
+{   
     try
     {
         let methodName = data.M.toLowerCase();
-        console.log(methodName)
         switch (methodName)
         {
             case 'ue':
-                _.forEach(data.A, (entry) => {
-                    this._processUpdateExchangeState(entry);
-                })
-                break;
+            _.forEach(data.A, (entry) => {
+                this._processUpdateExchangeMarketDeltas(entry);
+            })
+            break;
+            case 'ul':
+            _.forEach(data.A, (entry) => {
+                this._processUpdateExchangeLiteDeltas(entry);
+            })
+            break;
+            case 'us':
+            _.forEach(data.A, (entry) => {
+                this._processUpdateExchangeSummaryDeltas(entry);
+            })
+            break;
+            case 'ub':
+            _.forEach(data.A, (entry) => {
+                this._processBalanceDelta(entry);
+            })
+            break;
+            case 'uo':
+            _.forEach(data.A, (entry) => {
+                this._processOrdersDelta(entry);
+            })
+            break;
         };
     }
     catch (e)
@@ -287,10 +308,47 @@ _processData(data)
     }
 }
 
-_processUpdateExchangeState(d)
+
+_processOrdersDelta(d)
+{
+    this._decodeData(d, function(data){
+
+        if (undefined === data)
+        {
+            return;
+        }
+        if (undefined === data.o)
+        {
+            return;
+        }
+
+        this.emit('orderDelta', data);
+    });
+}
+
+_processBalanceDelta(d)
+{
+    this._decodeData(d, function(data){
+        this.emit('balanceDelta', data);
+    });
+}
+
+
+_processUpdateExchangeSummaryDeltas(d)
 {   
     this._decodeData(d, function(data){
-        console.log(data)
+        this.emit('summaryDelta', data);
+        if (undefined === data)
+        {
+            return;
+        }
+    });
+}
+
+
+_processUpdateExchangeMarketDeltas(d)
+{   
+    this._decodeData(d, function(data){
         this.emit('orderBookUpdate', data);
         // an error occurred
         if (undefined === data)
@@ -300,11 +358,24 @@ _processUpdateExchangeState(d)
     });
 }
 
+
+_processUpdateExchangeLiteDeltas(d)
+{   
+    this._decodeData(d, function(data){
+        this.emit('orderBookUpdateLite', data);
+        // an error occurred
+        if (undefined === data)
+        {
+            return;
+        }
+    });
+}
+
+
 _decodeData(d, cb)
 {
     let self = this;
     let gzipData = Buffer.from(d, 'base64');
-    // we need to use inflateRaw to avoid zlib error 'incorrect header check' (Z_DATA_ERROR)
     zlib.inflateRaw(gzipData, function(err, str){
         if (null !== err)
         {
@@ -325,11 +396,60 @@ _decodeData(d, cb)
     });
 }
 
-/*
- * Connect SignalR connection
- *
- * Should not be necessary since connection will happen automatically
- */
+
+_queryExchangeState(pair)
+{
+    let self = this;
+    this._connection.callMethod('QueryExchangeState', [pair], function(d, err){
+        if (err){
+            console.log("An error occoured ",err);
+        }
+        else{
+            self._decodeData.call(self, d, function(data){
+                self.emit('orderBook',data);
+            });
+        }
+
+    });
+
+}
+
+_querySummaryState(pair)
+{
+
+    let self = this;
+    this._connection.callMethod('QuerySummaryState',function(d,err){
+        if (err){
+            console.log("An error occoured ",err);
+        }
+        else{
+            self._decodeData.call(self, d, function(data){
+                self.emit('orderBookSummary',data);
+            });
+        }
+
+    });
+
+}
+
+subscribeToOrders(connect)
+{
+    if (null === this._auth.key)
+    {
+        return false;
+    }
+    if (undefined === connect)
+    {
+        connect = true;
+    }
+    let changes = {
+        subscribe:[{entity:'orders'}]
+    };
+    this._subscriptions.orders.subscribed = true;
+    this._processChanges(changes, connect);
+}
+
+
 connect()
 {
     // create if needed
@@ -350,7 +470,5 @@ isConnected()
     return this._connection.isConnected()
 }
 
-
 }
-
 module.exports = SignalRClient;

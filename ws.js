@@ -243,46 +243,47 @@ _connect(connection)
                      resolve();
                  });
                  ws.on('message', function (message) {
-                     if ('{}' === message)
-                     {
-                         return;
-                     }
-                     let data;
-                     try
-                     {
-                         data = JSON.parse(message);
-                        //  console.log(data)
-                     }
-                     catch (e)
-                     {
+                    if (STATE_CONNECTED != self._connectionState)
+                    {
                         return;
-                     }
-                     if (data.I != undefined){
-                         let messageId = parseInt(data.I)
-                     }
-                     // process responses
-                     if (undefined !== data.I)
-                     {
-                         let messageId = parseInt(data.I);
-                         // ignore progress
-                         if (undefined !== data.D)
-                         {
-                             return;
-                         }
-                         // process result
-                         if (undefined !== data.R)
-                         {  
-                             // do we have a callback for this messageId
-                             if (undefined !== self._callbacks[messageId])
-                             {
-                                 self._callbacks[messageId](data.R, null);
-                                 delete self._callbacks[messageId];
-                             }
-                         }
-                         return;
-                     }
-                     if (undefined !== data.M)
-                    {      console.log(data.M)
+                    }
+                    if ('{}' === message)
+                    {
+                        return;
+                    }
+                    let data;
+                    try
+                    {
+                        data = JSON.parse(message);
+                    }
+                    catch (e)
+                    {
+                        return;
+                    }
+                    
+                    // process responses
+                    if (undefined !== data.I)
+                    {
+                        let messageId = parseInt(data.I);
+                        // ignore progress
+                        if (undefined !== data.D)
+                        {
+                            return;
+                        }
+                        // process result
+                        if (undefined !== data.R)
+                        {   
+                            // do we have a callback for this messageId
+                            if (undefined !== self._callbacks[messageId])
+                            {   
+                                self._callbacks[messageId](data.R, null);
+                                delete self._callbacks[messageId];
+                            }
+                        }
+                        return;
+                    }
+                    if (undefined !== data.M)
+                    {      
                          _.forEach(data.M, (entry) => {
                              self.emit('data', entry);
                          });
@@ -442,7 +443,7 @@ callMethod(method, args, cb)
 }
 
 connect()
-{   console.log(this._connectionState)
+{   
     if (STATE_NEW != this._connectionState)
     {
         return false;
@@ -453,9 +454,8 @@ connect()
     self._negotiate().then((result) => {
         // 'connect' step
         self._connect(self._connection).then((result) => {
-            console.log(result)
+
             self._start(self._connection).then((result) => {
-                console.log(result)
                 self._connectionState = STATE_CONNECTED;
                 self.emit('connected', {connectionId:self._connection.ConnectionId});
                 

@@ -6,12 +6,12 @@ let client = new SignalRClient({
     pingTimeout:10000
 });
 
-client.on('orderBookUpdate', function(data){
-    console.log(JSON.stringify(data))
-    console.log(util.format("Got order book update for pair '%s' : cseq = %d", data.pair, data.cseq));
+//-- event handlers
+client.on('orderBookSummary', function(data){
+    console.log(JSON.stringify(data));
+    process.exit();
 });
 
 //-- start subscription
-console.log("=== Subscribing to 'USDT-BTC' pair");
-client.subscribeToMarkets(['BTC-ETH']);
-
+console.log("=== Subscribing to 'ETH-BTC' pair");
+client.QuerySummaryStateDeltas(['BTC-ETH']);

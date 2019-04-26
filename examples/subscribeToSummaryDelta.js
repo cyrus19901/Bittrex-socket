@@ -6,7 +6,7 @@ let client = new SignalRClient({
 });
 
 client.on('summaryDelta', function(data){
-    console.log(JSON.stringify(data));
+    console.log(data);
     return;
 });
 

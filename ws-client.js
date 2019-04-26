@@ -9,6 +9,244 @@ const zlib = require('zlib');
 const crypto = require('crypto');
 const SignalRConnection = require('./ws');
 
+const keyAlias = [
+    {
+        key: 'A',
+        val: 'Ask'
+    },
+    {
+        key: 'a',
+        val: 'Available'
+    },
+    {
+        key: 'B',
+        val: 'Bid'
+    },
+    {
+        key: 'b',
+        val: 'Balance'
+    },
+    {
+        key: 'C',
+        val: 'Closed'
+    },
+    {
+        key: 'c',
+        val: 'Currency'
+    },
+    {
+        key: 'CI',
+        val: 'CancelInitiated'
+    },
+    {
+        key: 'D',
+        val: 'Deltas'
+    },
+    {
+        key: 'd',
+        val: 'Delta'
+    },
+    {
+        key: 'DT',
+        val: 'OrderDeltaType'
+    },
+    {
+        key: 'E',
+        val: 'Exchange'
+    },
+    {
+        key: 'e',
+        val: 'ExchangeDeltaType'
+    },
+    {
+        key: 'F',
+        val: 'FillType'
+    },
+    {
+        key: 'FI',
+        val: 'FillId'
+    },
+    {
+        key: 'f',
+        val: 'Fills'
+    },
+    {
+        key: 'G',
+        val: 'OpenBuyOrders'
+    },
+    {
+        key: 'g',
+        val: 'OpenSellOrders'
+    },
+    {
+        key: 'H',
+        val: 'High'
+    },
+    {
+        key: 'h',
+        val: 'AutoSell'
+    },
+    {
+        key: 'I',
+        val: 'Id'
+    },
+    {
+        key: 'i',
+        val: 'IsOpen'
+    },
+    {
+        key: 'J',
+        val: 'Condition'
+    },
+    {
+        key: 'j',
+        val: 'ConditionTarget'
+    },
+    {
+        key: 'K',
+        val: 'ImmediateOrCancel'
+    },
+    {
+        key: 'k',
+        val: 'IsConditional'
+    },
+    {
+        key: 'L',
+        val: 'Low'
+    },
+    {
+        key: 'l',
+        val: 'Last'
+    },
+    {
+        key: 'M',
+        val: 'MarketName'
+    },
+    {
+        key: 'm',
+        val: 'BaseVolume'
+    },
+    {
+        key: 'N',
+        val: 'Nonce'
+    },
+    {
+        key: 'n',
+        val: 'CommissionPaid'
+    },
+    {
+        key: 'O',
+        val: 'Orders'
+    },
+    {
+        key: 'o',
+        val: 'Order'
+    },
+    {
+        key: 'OT',
+        val: 'OrderType'
+    },
+    {
+        key: 'OU',
+        val: 'OrderUuid'
+    },
+    {
+        key: 'P',
+        val: 'Price'
+    },
+    {
+        key: 'p',
+        val: 'CryptoAddress'
+    },
+    {
+        key: 'PD',
+        val: 'PrevDay'
+    },
+    {
+        key: 'PU',
+        val: 'PricePerUnit'
+    },
+    {
+        key: 'Q',
+        val: 'Quantity'
+    },
+    {
+        key: 'q',
+        val: 'QuantityRemaining'
+    },
+    {
+        key: 'R',
+        val: 'Rate'
+    },
+    {
+        key: 'r',
+        val: 'Requested'
+    },
+    {
+        key: 'S',
+        val: 'Sells'
+    },
+    {
+        key: 's',
+        val: 'Summaries'
+    },
+    {
+        key: 'T',
+        val: 'TimeStamp'
+    },
+    {
+        key: 't',
+        val: 'Total'
+    },
+    {
+        key: 'TY',
+        val: 'Type'
+    },
+    {
+        key: 'U',
+        val: 'Uuid'
+    },
+    {
+        key: 'u',
+        val: 'Updated'
+    },
+    {
+        key: 'V',
+        val: 'Volume'
+    },
+    {
+        key: 'W',
+        val: 'AccountId'
+    },
+    {
+        key: 'w',
+        val: 'AccountUuid'
+    },
+    {
+        key: 'X',
+        val: 'Limit'
+    },
+    {
+        key: 'x',
+        val: 'Created'
+    },
+    {
+        key: 'Y',
+        val: 'Opened'
+    },
+    {
+        key: 'y',
+        val: 'State'
+    },
+    {
+        key: 'Z',
+        val: 'Buys'
+    },
+    {
+        key: 'z',
+        val: 'Pending'
+    }
+];
 
 class SignalRClient extends EventEmitter
 {
@@ -157,7 +395,10 @@ _createConnection(delay)
         self._connectionId = data.connectionId;
         self._processSubscriptions.call(self);
     });
-
+    connection.on('connectionError', function(err){
+        self.emit('connectionError', {step:err.step,attempts:err.attempts,error:err.error});
+        return;
+    });
     connection.on('data', function(data){
         self._processData.call(self, data);
     });
@@ -322,14 +563,14 @@ _processOrdersDelta(d)
             return;
         }
 
-        this.emit('orderDelta', data);
+        this.emit('orderDelta', this._reformatKeys(data));
     });
 }
 
 _processBalanceDelta(d)
 {
     this._decodeData(d, function(data){
-        this.emit('balanceDelta', data);
+        this.emit('balanceDelta', this._reformatKeys(data));
     });
 }
 
@@ -337,7 +578,7 @@ _processBalanceDelta(d)
 _processUpdateExchangeSummaryDeltas(d)
 {   
     this._decodeData(d, function(data){
-        this.emit('summaryDelta', data);
+        this.emit('summaryDelta', this._reformatKeys(data));
         if (undefined === data)
         {
             return;
@@ -345,11 +586,55 @@ _processUpdateExchangeSummaryDeltas(d)
     });
 }
 
+_getAlias(key)
+{
+    let response = null;
+
+    keyAlias.forEach(function(element) {
+        if(key === element.key) {
+            response = element.val;
+        }
+    });
+
+    if(response !== null) {
+        return response;
+    } else {
+        console.log('failed to match alias', key);
+    }
+}
+
+_reformatKeys(data){
+    let self = this;
+    if (Array.isArray(data)) {
+
+        data.forEach(function(value, key) {
+            data[key] = self._reformatKeys(value);
+        });
+    
+    } else if(typeof data === 'object') {
+        Object.keys(data).forEach(function(key) {
+            let newKey = self._getAlias(key);
+            let value = data[key];
+
+            data[newKey] = value;
+            delete data[key];
+
+            if(value instanceof Array) {
+                data[newKey] = self._reformatKeys(value);
+
+            } else if(typeof data === 'object') {
+                data[newKey] = self._reformatKeys(value);
+            }
+        });
+    }
+    return data;
+}
+
 
 _processUpdateExchangeMarketDeltas(d)
 {   
     this._decodeData(d, function(data){
-        this.emit('orderBookUpdate', data);
+        this.emit('orderBookUpdate', this._reformatKeys(data));
         // an error occurred
         if (undefined === data)
         {
@@ -362,7 +647,7 @@ _processUpdateExchangeMarketDeltas(d)
 _processUpdateExchangeLiteDeltas(d)
 {   
     this._decodeData(d, function(data){
-        this.emit('orderBookUpdateLite', data);
+        this.emit('orderBookUpdateLite', this._reformatKeys(data));
         // an error occurred
         if (undefined === data)
         {
@@ -406,7 +691,7 @@ _queryExchangeState(pair)
         }
         else{
             self._decodeData.call(self, d, function(data){
-                self.emit('orderBook',data);
+                self.emit('orderBook',this._reformatKeys(data));
             });
         }
 
@@ -424,7 +709,7 @@ _querySummaryState(pair)
         }
         else{
             self._decodeData.call(self, d, function(data){
-                self.emit('orderBookSummary',data);
+                self.emit('orderBookSummary',this._reformatKeys(data));
             });
         }
 

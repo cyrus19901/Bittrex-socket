@@ -8,7 +8,7 @@ let client = new SignalRClient({
 
 //-- event handlers
 client.on('orderBookSummary', function(data){
-    console.log(JSON.stringify(data));
+    console.log(data);
     process.exit();
 });
 

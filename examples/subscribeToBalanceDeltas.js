@@ -8,7 +8,7 @@ let client = new SignalRClient({
     }
 });
 client.on('balanceDelta', function(data){
-    console.log(JSON.stringify(data))
+    console.log(data)
 });
 
 //-- start subscription

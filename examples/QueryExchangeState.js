@@ -7,7 +7,7 @@ let client = new SignalRClient({
 
 //-- event handlers
 client.on('orderBook', function(data){
-    console.log(JSON.stringify(data));
+    console.log(data);
     process.exit();
 });
 

@@ -6,10 +6,9 @@ let client = new SignalRClient({
 });
 
 client.on('summaryDelta', function(data){
-    console.log(JSON.stringify(data));
+    console.log(data)
     return;
 });
 
 console.log("=== Subscribing to 'ETH-BTC' pair");
 client.subscribeToMarkets(['BTC-ETH']);
-

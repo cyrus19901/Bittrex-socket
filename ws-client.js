@@ -1,9 +1,5 @@
 "use strict";
-const WebSocket = require('ws');
 const _ = require('lodash');
-const util = require('util');
-const debug = require('debug')
-const Big = require('big.js');
 const EventEmitter = require('events');
 const zlib = require('zlib');
 const crypto = require('crypto');
@@ -359,7 +355,7 @@ _processChanges(changes, connect)
         this._queryExchangeState(this._subscriptions.query.pairs[0]);
     }
     if (this._subscriptions.query.pairs != null && this._subscriptions.query.summary === true){
-        this._querySummaryState(this._subscriptions.query.pairs[0]);
+        this._querySummaryState();
     }
 
     if (undefined !== changes.subscribe)
@@ -496,10 +492,10 @@ _processSubscriptions()
     _.forEach(Object.keys(this._subscriptions.markets.pairs), (p) => {
         changes.subscribe.push({entity:'market',pair:p});
     });
-    _.forEach(Object.keys(this._subscriptions.markets.pairs), (p) => {
+    _.forEach(Object.keys(this._subscriptions.markets.pairs), () => {
         changes.subscribe.push({entity:'summary'});
     });
-    _.forEach(Object.keys(this._subscriptions.markets.pairs), (p) => {
+    _.forEach(Object.keys(this._subscriptions.markets.pairs), () => {
         changes.subscribe.push({entity:'summarylite'});
     });
     if (this._subscriptions.orders.subscribed)
@@ -699,7 +695,7 @@ _queryExchangeState(pair)
 
 }
 
-_querySummaryState(pair)
+_querySummaryState()
 {
 
     let self = this;
